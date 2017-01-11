@@ -2,9 +2,10 @@ require 'csv'
 
 variables_file = '../Baseline/WITLvarnamesBaseline.csv'
 variables_hash = generate_variables(variables_file)
-
-baseline_data_file = '../Baseline/Data/A Week in the Life- Baseline Survey (1.0) 20151212_List_Comma.csv'
-combined_headers = generate_headers(baseline_data_file, variables_hash)
+data_file = '../Baseline/Data/A Week in the Life- Baseline Survey (1.0) 20151212_List_Comma.csv'
+# Use bom-utf-8 encoding to avoid malformed csv errors
+data_headers = CSV.read(data_file, headers: true, encoding: 'bom|utf-8').headers
+combined_headers = generate_headers(data_headers, variables_hash)
 
 baseline_wide = '../Baseline/Data/baseline_wide.csv'
 CSV.open(baseline_wide, 'wb') do |csv|
@@ -12,7 +13,7 @@ CSV.open(baseline_wide, 'wb') do |csv|
 end
     
 data_array = Array.new(combined_headers.length)
-CSV.foreach(baseline_data_file, headers: true, encoding: 'bom|utf-8') do |row|
+CSV.foreach(data_file, headers: true, encoding: 'bom|utf-8') do |row|
   # Remove leading or trailing whitespaces and replace curly quotes with 
   # straight quotes in the text at index 6 for easier comparison
   text = row[6].strip.gsub(/[\u2018\u2019\u201c\u201d]/, '\'') 
@@ -20,41 +21,22 @@ CSV.foreach(baseline_data_file, headers: true, encoding: 'bom|utf-8') do |row|
   if /\d/.match(text[1])
     text = text.slice(text.index(" ")..-1).strip
   end
-  # Find the variable representing the row of data 
-  variable_key = variables_hash.key(text)
-  unless variable_key
-    variable_key = variables_hash.key(text + "-" + row[7].strip)
-    unless variable_key
-      variable_key = variables_hash.key(text + "-" + row[8].strip)
-      unless variable_key
-        variable_key = variables_hash.key(text + "-Y")
-      end
-    end
+  # Find the variable identifying the row of data 
+  data_values = [text, "#{text}-#{row[7].strip}", "#{text}-#{row[8].strip}", "#{text}-Y"]
+  variable_key = nil
+  data_values.each do |val|
+    variable_key = variables_hash.key(val)
+    break if variable_key
   end
-  # Insert data in their indexes within the csv row array 
-  device_index = combined_headers.index("ResultDeviceName_#{variable_key}")
-  data_array[device_index] = row[0]
-  id_index = combined_headers.index("ResultId_#{variable_key}")
-  data_array[id_index] = row[1]
-  name_index = combined_headers.index("SurveyName_#{variable_key}")
-  data_array[name_index] = row[2]
-  start_time_index = combined_headers.index("ResultSurveyedDate_#{variable_key}")
-  data_array[start_time_index] = row[3]
-  end_time_index = combined_headers.index("ResultSurveyedEndDate_#{variable_key}")
-  data_array[end_time_index] = row[4]
-  answer_date_index = combined_headers.index("ScreenResultAnswerDate_#{variable_key}")
-  data_array[answer_date_index] = row[5]
-  text_index = combined_headers.index("ScreenText_#{variable_key}")
-  data_array[text_index] = row[6]
-  type_name_index = combined_headers.index("ScreenTypeName_#{variable_key}")
-  data_array[type_name_index] = row[7]
-  answer_index = combined_headers.index("ScreenResultAnswerText_#{variable_key}")
-  data_array[answer_index] = row[8]
+  # Insert data in their indices within the csv row array 
+  data_headers.each_with_index { |value, index|
+    cell_index = combined_headers.index("#{value}_#{variable_key}")
+    data_array[cell_index] = row[index]
+  }
 
-  # Write participant data to csv file once all surveys are in the csv row array
+  # Write participant data to csv file once all surveys are in the row array
   if variable_key == 'id2'
     write_row(baseline_wide, data_array)
-    #Create new data row for the next participant
     data_array = Array.new(combined_headers.length)
   end
   
@@ -78,9 +60,7 @@ BEGIN {
     hash
   end
   
-  def generate_headers(file, variables_hash)
-    # Use bom-utf-8 encoding to avoid malformed csv errors
-    data_headers = CSV.read(file, headers: true, encoding: 'bom|utf-8').headers
+  def generate_headers(data_headers, variables_hash)
     combined_headers = []
     variables_hash.keys.each do |key|
       combined_headers << data_headers.map { |elem| elem + "_#{key}" }
